@@ -1,7 +1,8 @@
 require('dotenv').config();
 
+const fs = require('fs');
 const express = require('express');
-const { Client, GatewayIntentBits, Partials, ChannelType, PermissionsBitField } = require('discord.js');
+const { Client, GatewayIntentBits, Partials, ChannelType, PermissionsBitField, Collection } = require('discord.js');
 const cron = require('node-cron');
 
 const token = process.env.DISCORD_TOKEN;
@@ -18,11 +19,45 @@ const client = new Client({
   partials: [Partials.Channel]
 });
 
+// --- Command loading ---
+client.commands = new Collection();
+const commandFiles = fs.existsSync('./commands') ? fs.readdirSync('./commands').filter(f => f.endsWith('.js')) : [];
+for (const file of commandFiles) {
+  try {
+    const command = require(`./commands/${file}`);
+    if (command && command.data && command.execute) {
+      client.commands.set(command.data.name, command);
+      console.log(`Loaded command: ${command.data.name}`);
+    } else {
+      console.warn(`Skipping ${file}: missing data or execute`);
+    }
+  } catch (err) {
+    console.error(`Failed to load command ${file}:`, err);
+  }
+}
+
+// handle slash commands
+client.on('interactionCreate', async interaction => {
+  if (!interaction.isChatInputCommand()) return;
+  const command = client.commands.get(interaction.commandName);
+  if (!command) return;
+  try {
+    await command.execute(interaction);
+  } catch (err) {
+    console.error(`Error executing ${interaction.commandName}:`, err);
+    if (interaction.replied || interaction.deferred) {
+      await interaction.followUp({ content: 'There was an error while executing that command.', ephemeral: true });
+    } else {
+      await interaction.reply({ content: 'There was an error while executing that command.', ephemeral: true });
+    }
+  }
+});
+
+// --- existing bot logic ---
 function findWritableTextChannel(guild) {
   const channels = guild.channels.cache
     .filter(c => c.type === ChannelType.GuildText)
     .filter(c => {
-      // permissionsFor may throw for some channels; guard it
       try {
         const perms = c.permissionsFor(guild.members.me);
         return perms && perms.has(PermissionsBitField.Flags.SendMessages);
@@ -40,9 +75,19 @@ client.once('ready', () => {
   cron.schedule('20 * * * *', async () => {
     console.log(`[${new Date().toISOString()}] Running scheduled Turf ping`);
 
+    // load per-guild settings if present
+    let settings = {};
+    try { settings = JSON.parse(fs.readFileSync('./guild-settings.json')); } catch (e) { settings = {}; }
+
     for (const [, guild] of client.guilds.cache) {
       try {
-        const channel = findWritableTextChannel(guild);
+        // prefer configured channel if present
+        const guildSettings = settings[guild.id] || {};
+        let channel = null;
+        if (guildSettings.channelId) {
+          channel = await client.channels.fetch(guildSettings.channelId).catch(() => null);
+        }
+        if (!channel) channel = findWritableTextChannel(guild);
         if (!channel) {
           console.log(`  - No writable text channel in guild ${guild.name} (${guild.id}), skipping`);
           continue;
