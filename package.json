@@ -1,0 +1,21 @@
+{
+  "name": "turfbot2",
+  "version": "1.0.0",
+  "description": "A simple Discord bot that pings everyone at 20 past every hour saying 'Turf in 5 Minutes!' — prepared for 24/7 hosting on platforms like Render/Railway/Fly with Docker and a web health endpoint.",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js"
+  },
+  "author": "Jeankeee",
+  "license": "MIT",
+  "dependencies": {
+    "discord.js": "^14.11.0",
+    "dotenv": "^16.3.1",
+    "node-cron": "^3.0.2",
+    "express": "^4.18.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
